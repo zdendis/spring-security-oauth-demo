@@ -2,7 +2,6 @@ package dt.sdp.cornholio.springsecurityoauthdemo.config;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.UUID;
@@ -25,8 +24,10 @@ import org.springframework.security.web.SecurityFilterChain;
 
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
+
 
 @Configuration
 public class AuthorizationServerConfig {
@@ -35,24 +36,33 @@ public class AuthorizationServerConfig {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public SecurityFilterChain authServerSecurityFilterChain(HttpSecurity http) throws Exception {
         OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+
+//        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+//                .tokenEndpoint(tokenEndpoint ->
+//                                tokenEndpoint
+//                                        // Add 'jwt-bearer' grant
+////                                    .accessTokenRequestConverter(new JwtBearerGrantAuthenticationConverter())
+//                                    .authenticationProvider(new JwtAuthenticationProvider(jwtDecoder(jwkSource())))
+//                );
+
         return http.build();
     }
 
-    /**
-     * Client registration does not require a direct interaction between the
-     *    client and the authorization server.  When supported by the
-     *    authorization server, registration can rely on other means for
-     *    establishing trust and obtaining the required client properties
-     *    (e.g., redirection URI, client type).  For example, registration can
-     *    be accomplished using a self-issued or third-party-issued assertion,
-     *    or by the authorization server performing client discovery using a
-     *    trusted channel.
-     *
-     *    https://datatracker.ietf.org/doc/html/rfc6749#section-2
-     *    TODO Use Pit app client for this identity verification
-     *
-     * @return
-     */
+//    @Bean
+//    public OAuth2AuthorizationService authorizationService() {
+//        return new InMemoryOAuth2AuthorizationService();
+//    }
+//
+//    @Bean
+//    public OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator() {
+//        NimbusJwtEncoder jwtEncoder = new NimbusJwtEncoder(jwkSource());
+//        JwtGenerator jwtGenerator = new JwtGenerator(jwtEncoder);
+//        OAuth2AccessTokenGenerator accessTokenGenerator = new OAuth2AccessTokenGenerator();
+//        OAuth2RefreshTokenGenerator refreshTokenGenerator = new OAuth2RefreshTokenGenerator();
+//        return new DelegatingOAuth2TokenGenerator(
+//                jwtGenerator, accessTokenGenerator, refreshTokenGenerator);
+//    }
+//
     @Bean
     public RegisteredClientRepository registeredClientRepository() {
         RegisteredClient registeredClient = RegisteredClient.withId(UUID.randomUUID().toString())
@@ -60,10 +70,42 @@ public class AuthorizationServerConfig {
                 .clientSecret("{noop}oauth-secret")
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .authorizationGrantType(AuthorizationGrantType.JWT_BEARER)
                 .scope(OidcScopes.OPENID)
                 .scope("articles.read")
+                .scope("articles.write")
                 .build();
         return new InMemoryRegisteredClientRepository(registeredClient);
+    }
+
+    @Bean
+    public JWKSource<SecurityContext> jwkSource() {
+        KeyPair keyPair = generateRsaKey();
+        RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
+        RSAPrivateKey privateKey = (RSAPrivateKey) keyPair.getPrivate();
+        RSAKey rsaKey = new RSAKey.Builder(publicKey)
+                .privateKey(privateKey)
+                .keyID(UUID.randomUUID().toString())
+                .build();
+        JWKSet jwkSet = new JWKSet(rsaKey);
+        return new ImmutableJWKSet<>(jwkSet);
+    }
+
+    private static KeyPair generateRsaKey() {
+        KeyPair keyPair;
+        try {
+            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+            keyPairGenerator.initialize(2048);
+            keyPair = keyPairGenerator.generateKeyPair();
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+        return keyPair;
+    }
+    @Bean
+    public JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
+        return OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
     }
 
     @Bean
@@ -71,31 +113,4 @@ public class AuthorizationServerConfig {
         return AuthorizationServerSettings.builder().build();
     }
 
-    @Bean
-    public JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
-        return OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
-    }
-
-    @Bean
-    public JWKSource<SecurityContext> jwkSource() throws NoSuchAlgorithmException {
-        RSAKey rsaKey = generateRsa();
-        JWKSet jwkSet = new JWKSet(rsaKey);
-        return (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
-    }
-
-    private static RSAKey generateRsa() throws NoSuchAlgorithmException {
-        KeyPair keyPair = generateRsaKey();
-        RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
-        RSAPrivateKey privateKey = (RSAPrivateKey) keyPair.getPrivate();
-        return new RSAKey.Builder(publicKey)
-                .privateKey(privateKey)
-                .keyID(UUID.randomUUID().toString())
-                .build();
-    }
-
-    private static KeyPair generateRsaKey() throws NoSuchAlgorithmException {
-        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
-        keyPairGenerator.initialize(2048);
-        return keyPairGenerator.generateKeyPair();
-    }
 }
